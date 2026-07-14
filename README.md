@@ -48,9 +48,3 @@ Confirms once, then scans every domain in the list.
 - Findings are leads, not confirmed bugs — always double-check by hand.
 - JS scan results especially have false alarms.
 - Big targets take longer — that's normal.
-
-## Something broken?
-
-Make sure you're using the latest version of the scripts — earlier bugs
-with `httpx`, `naabu`, and nuclei's output have already been fixed. If you
-still hit an error, paste it and ask for help.
