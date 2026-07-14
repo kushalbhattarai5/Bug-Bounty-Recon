@@ -1,110 +1,78 @@
-# Bug Bounty Recon & Vuln-Scan Pipeline
+# Bug Bounty Recon Tool
 
-Automates the standard authorized bug-bounty recon workflow:
+This tool automates the boring first steps of bug bounty hunting:
 
+1. Find a target's subdomains
+2. Check which ones are actually online
+3. Scan for open ports
+4. Scan for known vulnerabilities and misconfigurations
+5. (Optional) Pull out JS files and check them for leaked keys/tokens
+
+At the end, it gives you a clean report to read — you still review it and
+decide what's worth digging into further.
+
+## ⚠️ Before you use this
+
+Only scan domains you're allowed to test — a company's official bug bounty
+program scope, or something you personally own. Scanning a company without
+permission can be illegal, even if you don't mean any harm. The tool will
+ask you to confirm the target before it starts, as a reminder to double
+check.
+
+## Setup (one time only)
+
+Open a terminal in this folder and run:
+
+```bash
+chmod +x *.sh *.py
+./install_kali.sh
+source ~/.zshrc
 ```
-subdomains (subfinder) → live hosts (httpx) → open ports (naabu) → CVE/misconfig scan (nuclei) → report.md
-```
 
-It's a thin orchestrator around four well-known, actively maintained
-open-source tools from ProjectDiscovery — it doesn't contain any custom
-exploit code. All the actual scanning logic lives in those tools and their
-community-maintained templates.
+This installs everything the tool needs. Wait for it to finish — it can
+take a few minutes.
 
-## ⚠️ Scope & legal use
-
-Only run this against domains/IPs you are **explicitly authorized** to test —
-i.e. targets listed in a bug bounty program's published scope, or systems you
-personally own. Running network scans and vulnerability probes against
-systems without authorization is illegal in most places (CFAA in the US,
-Computer Misuse Act in the UK, and equivalents elsewhere), independent of
-intent. `recon.sh` will ask you to re-type the target domain as a
-confirmation step before it does anything — use that pause to actually check
-the program's scope page.
-
-Also worth doing:
-- Respect the program's rate limits / out-of-scope exclusions (use `-r` to
-  slow down nuclei if the program asks for it).
-- Don't run active exploitation beyond what nuclei's detection templates do —
-  this tool is for *finding and confirming*, not exploiting further.
-- Follow the program's disclosure process for anything you find.
-
-## Setup
-
-1. Install Go 1.21+: https://go.dev/dl/
-2. Run the installer:
-   ```
-   chmod +x install.sh recon.sh
-   ./install.sh
-   ```
-3. (Optional but recommended) Add a subfinder API key config for better
-   subdomain coverage — see
-   https://github.com/projectdiscovery/subfinder#post-installation-instructions
-
-## Usage
+## How to scan one website
 
 ```bash
 ./recon.sh -d example.com
 ```
 
-Options:
+Replace `example.com` with your target. It will ask you to type the domain
+name again to confirm — this is just a safety check, type it and press
+Enter.
 
-| Flag | Meaning | Default |
-|---|---|---|
-| `-d` | Target root domain (required) | — |
-| `-o` | Output directory | `results/<domain>_<timestamp>` |
-| `-r` | Nuclei rate limit (req/sec) | `150` |
-| `-s` | Nuclei severities to include | `low,medium,high,critical` |
+Then it runs automatically through all the steps. This can take a few
+minutes depending on how big the target is.
 
-Example, slower/stealthier scan on medium+ severity only:
-
-```bash
-./recon.sh -d example.com -r 50 -s medium,high,critical
-```
-
-## Output
+At the end, it will ask:
 
 ```
-results/example.com_20260713_063600/
-├── subdomains.txt        # raw subfinder output
-├── live_hosts.txt        # httpx output: status code, title, tech stack
-├── live_hosts_clean.txt  # just the URLs, used as input to naabu/nuclei
-├── ports.txt             # naabu open host:port pairs
-├── nuclei_results.jsonl  # raw nuclei findings, one JSON object per line
-└── report.md             # human-readable summary, grouped by severity
+Do you want to analyze JS files for this target now? [y/n]:
 ```
 
-Open `report.md` for a readable summary you can review before writing up a
-submission. **Always manually verify findings** — nuclei templates can and do
-produce false positives.
+Type `y` and press Enter if you want it to also check JS files for leaked
+info, or `n` to skip that for now.
 
-## Kali Linux: full automation
+## Where to find your results
 
-For Kali specifically, three extra scripts handle setup, multi-target runs,
-and scheduling so you don't have to babysit each step:
+Everything is saved in a new folder inside `results/`. The one file you
+mainly want to open is:
 
-### 1. One-shot setup
-
-```bash
-chmod +x install_kali.sh recon.sh run_scope.sh schedule.sh report.py
-./install_kali.sh
-source ~/.bashrc   # or open a new terminal
+```
+results/example.com_<date>/report.md
 ```
 
-This installs apt deps (`libpcap-dev`), Go (if missing), all four
-ProjectDiscovery tools, sets your `PATH`, grants `naabu` raw-socket
-capability so it doesn't need `sudo` for SYN scans, and updates nuclei's
-template database.
+Open it in any text editor. It lists everything found, sorted by how
+serious it is.
 
-### 2. Scan a whole scope, not just one domain
+## Scanning multiple websites at once
 
-Create a `scope.txt` with one authorized root domain per line:
+Make a text file called `scope.txt`, one domain per line:
 
 ```
 example.com
-api.example.org
-# out of scope, left commented:
-# internal.example.com
+api.example.com
 ```
 
 Then run:
@@ -113,34 +81,26 @@ Then run:
 ./run_scope.sh scope.txt results
 ```
 
-This asks you to confirm the **entire list** once (instead of prompting per
-domain), then loops `recon.sh` over every target and writes a
-`summary.md` linking to each target's individual report.
+It will ask you to confirm once, then scan every domain in the list
+automatically.
 
-### 3. Scheduled / unattended scanning
+## A few things to remember
 
-If you want ongoing monitoring of a program's scope (e.g. to catch newly
-added subdomains over time), `schedule.sh` installs a cron job for you:
+- **Not everything it finds is a real bug.** Treat results as things to
+  double-check yourself, not confirmed problems.
+- **JS scan results especially** can have false alarms — a random bit of
+  code can look like a leaked key even when it isn't.
+- If a scan is taking a long time, that's normal for big targets — just
+  let it run.
 
-```bash
-./schedule.sh scope.txt results "0 3 * * *"   # daily at 3am
-```
+## If something breaks
 
-It asks you to explicitly confirm — at the moment you set up the schedule —
-that everything in `scope.txt` is authorized for **ongoing, unattended**
-scanning, since cron runs won't be there for you to confirm each time.
-Logs land in `logs/`. Remove the job later with `crontab -e`.
+- `httpx` gives a weird error → run `which -a httpx` and make sure the
+  right one is being used. The tool already tries to handle this for you.
+- `naabu` says no valid targets found → this is fixed in the current
+  version of the script, make sure you're using the latest file.
+- Nuclei prints unreadable text instead of clean results → same, fixed in
+  the current version.
 
-**Important:** unattended scanning only stays legitimate if you keep
-`scope.txt` in sync with the program's actual current scope. Bug bounty
-programs add/remove domains; re-check periodically rather than "set and
-forget" indefinitely.
-
-## Extending it
-
-- Add more nuclei template categories with `-nuclei-args "-tags cve,exposure"`
-  style flags inside `recon.sh` if you want to narrow/broaden coverage.
-- Swap `naabu -top-ports 1000` for `-p -` (all ports) if the program's rules
-  allow full port sweeps — it's much slower.
-- Pipe `live_hosts_clean.txt` into other authorized tools you already use
-  (e.g. content discovery, JS endpoint extraction) by adding a stage.
+If you're ever unsure whether something is working right, just copy the
+error message and ask for help.
