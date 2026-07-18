@@ -1,0 +1,10 @@
+# One nuclei template-id per line. Lines starting with # are comments.
+# Findings matching these template IDs are suppressed from report.md
+# (they're still in the raw nuclei_results.json, just filtered from the summary).
+#
+# Add a template-id here once you've confirmed it's not useful for your
+# workflow — e.g. after seeing the same low-value match across many targets.
+#
+# Example:
+# weak-cipher-suites
+# missing-security-headers

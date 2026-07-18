@@ -13,9 +13,9 @@ set -euo pipefail
 echo "=== Kali automated setup for bug bounty recon pipeline ==="
 
 # ---------- 1. apt dependencies ----------
-echo "[1/5] Installing apt dependencies (libpcap-dev, git, curl)..."
+echo "[1/5] Installing apt dependencies (libpcap-dev, git, curl, chromium)..."
 sudo apt update -qq
-sudo apt install -y -qq libpcap-dev git curl
+sudo apt install -y -qq libpcap-dev git curl chromium
 
 # ---------- 2. Go ----------
 if ! command -v go &>/dev/null; then
@@ -48,6 +48,12 @@ go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
 echo "Installing katana (JS/endpoint crawler)..."
 go install -v github.com/projectdiscovery/katana/cmd/katana@latest
+
+echo "Installing gowitness (screenshot tool)..."
+go install -v github.com/sensepost/gowitness@latest
+
+echo "Installing gau (historical URL fetcher)..."
+go install -v github.com/lc/gau/v2/cmd/gau@latest
 
 # naabu on Kali needs cap_net_raw to do SYN scans without sudo — set it once:
 if command -v "$GOPATH_BIN/naabu" &>/dev/null; then

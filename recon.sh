@@ -217,3 +217,15 @@ else
   echo "Skipping JS analysis. You can run it later with:"
   echo "  ./js_analysis.sh $OUTDIR"
 fi
+
+echo
+if ask_yes_no "Do you want to check for subdomain takeovers now?"; then
+  if [[ -x "$SCRIPT_DIR/takeover_check.sh" ]]; then
+    "$SCRIPT_DIR/takeover_check.sh" "$OUTDIR"
+  else
+    echo "[!] takeover_check.sh not found or not executable in $SCRIPT_DIR"
+  fi
+else
+  echo "Skipping takeover check. You can run it later with:"
+  echo "  ./takeover_check.sh $OUTDIR"
+fi

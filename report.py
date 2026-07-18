@@ -44,16 +44,34 @@ def read_json_array(path):
         return []
 
 
+def read_ignore_list(path):
+    ignored = set()
+    if os.path.exists(path):
+        with open(path, "r", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    ignored.add(line)
+    return ignored
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: report.py <output_dir>")
+        print("Usage: report.py <output_dir> [ignore_file]")
         sys.exit(1)
 
     outdir = sys.argv[1]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    ignore_path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(script_dir, "ignore.txt")
+    ignored_templates = read_ignore_list(ignore_path)
+
     subdomains = read_lines(os.path.join(outdir, "subdomains.txt"))
     live_hosts = read_lines(os.path.join(outdir, "live_hosts.txt"))
     ports = read_lines(os.path.join(outdir, "ports.txt"))
-    findings = read_json_array(os.path.join(outdir, "nuclei_results.json"))
+    all_findings = read_json_array(os.path.join(outdir, "nuclei_results.json"))
+
+    suppressed_count = sum(1 for f in all_findings if f.get("template-id", "") in ignored_templates)
+    findings = [f for f in all_findings if f.get("template-id", "") not in ignored_templates]
 
     # group findings by severity
     by_sev = defaultdict(list)
@@ -75,6 +93,8 @@ def main():
     lines.append(f"- Live hosts: **{len(live_hosts)}**")
     lines.append(f"- Open host:port pairs: **{len(ports)}**")
     lines.append(f"- Total nuclei findings: **{len(findings)}**")
+    if suppressed_count:
+        lines.append(f"  - ({suppressed_count} suppressed via ignore.txt)")
     for sev in SEVERITY_ORDER:
         if by_sev.get(sev):
             lines.append(f"  - {sev.capitalize()}: {len(by_sev[sev])}")
