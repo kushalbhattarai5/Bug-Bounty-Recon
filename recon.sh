@@ -207,25 +207,32 @@ ask_yes_no() {
 }
 
 echo
-if ask_yes_no "Do you want to analyze JS files for this target now?"; then
-  if [[ -x "$SCRIPT_DIR/js_analysis.sh" ]]; then
-    "$SCRIPT_DIR/js_analysis.sh" "$OUTDIR"
+echo "Optional follow-up scans available. For each one, type y to run it"
+echo "now, or n to skip (you can always run it manually later)."
+
+# name | script | description
+OPTIONAL_STAGES=(
+  "js_analysis.sh|Analyze JS files for leaked keys/tokens"
+  "takeover_check.sh|Check for subdomain takeovers"
+  "bypass_403.sh|Check 403/401 hosts for access-control bypass"
+  "screenshot.sh|Screenshot every live host"
+  "historical_urls.sh|Pull historical/archived URLs (Wayback Machine)"
+)
+
+for stage in "${OPTIONAL_STAGES[@]}"; do
+  script="${stage%%|*}"
+  desc="${stage#*|}"
+  echo
+  if ask_yes_no "Run '$script' now? ($desc)"; then
+    if [[ -x "$SCRIPT_DIR/$script" ]]; then
+      "$SCRIPT_DIR/$script" "$OUTDIR"
+    else
+      echo "[!] $script not found or not executable in $SCRIPT_DIR — skipping"
+    fi
   else
-    echo "[!] js_analysis.sh not found or not executable in $SCRIPT_DIR"
+    echo "Skipped. Run it later with: ./$script $OUTDIR"
   fi
-else
-  echo "Skipping JS analysis. You can run it later with:"
-  echo "  ./js_analysis.sh $OUTDIR"
-fi
+done
 
 echo
-if ask_yes_no "Do you want to check for subdomain takeovers now?"; then
-  if [[ -x "$SCRIPT_DIR/takeover_check.sh" ]]; then
-    "$SCRIPT_DIR/takeover_check.sh" "$OUTDIR"
-  else
-    echo "[!] takeover_check.sh not found or not executable in $SCRIPT_DIR"
-  fi
-else
-  echo "Skipping takeover check. You can run it later with:"
-  echo "  ./takeover_check.sh $OUTDIR"
-fi
+echo "All optional stages done (or skipped). Final results in: $OUTDIR"
