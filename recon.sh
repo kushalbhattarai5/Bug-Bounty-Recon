@@ -85,10 +85,22 @@ early_yes_no() {
 TS=$(date +%Y%m%d_%H%M%S)
 if [[ -z "${OUTDIR:-}" ]]; then
   # no -o given — check for an incomplete previous scan of this same
-  # target before starting a fresh one
-  LATEST_INCOMPLETE=$(ls -td "results/${TARGET}"_*/ 2>/dev/null | while read -r d; do
-    [[ -f "$d/.done_nuclei" ]] || echo "$d"
-  done | head -n1)
+  # target before starting a fresh one.
+  #
+  # FIX: the pipeline below can legitimately return non-zero (e.g. `ls`
+  # finds no matching "results/<target>_*/" dirs on a first-ever run, or
+  # the while-loop simply hits EOF without echoing anything). Under
+  # `set -e` + `set -o pipefail`, that non-zero status used to kill the
+  # whole script silently, before any banner text was ever printed —
+  # which is exactly the "script does nothing" symptom. Make sure this
+  # directory exists first (so `ls` doesn't error), and append `|| true`
+  # so an empty/no-match result is never treated as a fatal error.
+  mkdir -p results
+  LATEST_INCOMPLETE=$(
+    { ls -td "results/${TARGET}"_*/ 2>/dev/null || true; } | while read -r d; do
+      [[ -f "$d/.done_nuclei" ]] || echo "$d"
+    done | head -n1
+  ) || true
   LATEST_INCOMPLETE="${LATEST_INCOMPLETE%/}"
 
   if [[ -n "$LATEST_INCOMPLETE" ]]; then
@@ -171,7 +183,7 @@ else
   "$SUBFINDER_BIN" -d "$TARGET" -silent -all -o "$OUTDIR/subdomains.txt"
   touch "$OUTDIR/.done_subfinder"
 fi
-SUB_COUNT=$(wc -l < "$OUTDIR/subdomains.txt" || echo 0)
+SUB_COUNT=$(wc -l < "$OUTDIR/subdomains.txt" 2>/dev/null || echo 0)
 echo "      -> $SUB_COUNT subdomains found"
 
 # ---------- 2. Live host probing ----------
@@ -184,7 +196,7 @@ else
     -o "$OUTDIR/live_hosts.txt"
   touch "$OUTDIR/.done_httpx"
 fi
-LIVE_COUNT=$(wc -l < "$OUTDIR/live_hosts.txt" || echo 0)
+LIVE_COUNT=$(wc -l < "$OUTDIR/live_hosts.txt" 2>/dev/null || echo 0)
 echo "      -> $LIVE_COUNT live hosts"
 
 # extract just the bare hostnames/URLs for downstream tools
