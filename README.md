@@ -49,7 +49,7 @@ Also worth doing:
 | `takeover_check.sh` | Checks subdomains for possible takeover (dangling CNAMEs) |
 | `bypass_403.sh` | Tests 403/401 hosts for access-control bypass |
 | `screenshot.sh` | Screenshots every live host (via `gowitness`) |
-| `historical_urls.sh` | Pulls archived/historical URLs (via `gau`) |
+| `historical_urls.sh` | Pulls archived URLs, filters dead links, categorizes by risk, re-scans survivors |
 | `diff_scans.py` | Compares two scans of the same target, shows what's new |
 | `notify_webhook.py` | Sends Slack/Discord alert for high/critical findings |
 | `run_scope.sh` | Runs `recon.sh` across every domain in a scope file |
@@ -90,6 +90,24 @@ runs through all four core stages. `recon.sh` resolves each tool by its
 explicit install path (not just `PATH` lookup), so it's immune to naming
 collisions with unrelated system tools.
 
+### If a scan gets interrupted
+
+Each core stage saves a hidden "done" marker in the output folder the
+moment it finishes. If you close the terminal or the scan dies partway
+through, just run the same command again:
+```bash
+./recon.sh -d example.com
+```
+It automatically detects the unfinished scan and asks:
+```
+Found an incomplete previous scan: results/example.com_20260713_124039
+Resume it instead of starting a new scan? [y/n]:
+```
+Say yes and it skips every stage that already finished, picking up exactly
+where it stopped — no need to remember or pass the old output path with
+`-o` yourself. Say no (or pass `-o` explicitly) to force a completely fresh
+scan instead.
+
 ### Flags
 
 | Flag | Meaning | Default |
@@ -120,7 +138,7 @@ turn — type `y` to run it immediately against the results you just got, or
 | `takeover_check.sh` | Dangling CNAMEs pointing at unclaimed cloud resources | Checks the full subdomain list, not just live hosts |
 | `bypass_403.sh` | Whether 403/401-protected pages can be bypassed via headers/paths/methods | Only uses safe methods (GET/HEAD/OPTIONS) — never PUT/DELETE/PATCH |
 | `screenshot.sh` | Visual screenshot of every live host | Needs Chromium (installed by `install_kali.sh`) |
-| `historical_urls.sh` | Old/archived URLs that still work but aren't linked live | Pulled from Wayback Machine via `gau` |
+| `historical_urls.sh` | Old/archived URLs that still work but aren't linked live | Auto-filters dead links, categorizes into sensitive-files/admin-panels/API-docs/params, re-scans survivors with nuclei |
 
 If none of your live hosts match a check's condition (e.g. no 403/401
 responses that run), the tool just reports "nothing found" — that's a
@@ -155,7 +173,15 @@ results/example.com_20260713_063600/
 ├── takeover_results.txt/.json  # if you ran takeover_check.sh
 ├── bypass_403_results.md       # if you ran bypass_403.sh
 ├── screenshots/                # if you ran screenshot.sh
-└── historical_urls.txt / historical_urls_interesting.txt   # if you ran historical_urls.sh
+└── historical/                 # if you ran historical_urls.sh
+    ├── all_urls.txt            # every historical URL pulled
+    ├── alive_urls.txt          # URLs that still respond
+    ├── sensitive_files.txt     # .env/.sql/.log/backup/config — check first
+    ├── admin_panels.txt        # /admin, /internal, /debug, etc.
+    ├── api_docs.txt            # swagger/graphql/openapi
+    ├── urls_with_params.txt    # worth manual parameter testing
+    ├── nuclei_results.txt/.json # vuln scan against surviving URLs
+    └── report.md                # triaged summary — start here
 ```
 
 Open `report.md` first. **Always manually verify findings** before
@@ -257,6 +283,12 @@ isn't in the same folder as `recon.sh`, or isn't executable. Check with
 **A follow-up stage says "nothing found"** — that's a normal, correct
 result when the condition just doesn't apply this run (e.g. no hosts
 returned 403, so there was nothing for `bypass_403.sh` to test). Not a bug.
+
+**Resume picked the wrong scan, or didn't offer to resume at all** — it
+only looks for folders matching `results/<domain>_*` that are missing the
+`.done_nuclei` marker. If you manually renamed an output folder, or already
+let a scan finish, it won't be offered. Pass `-o <folder>` explicitly to
+target a specific one yourself.
 
 ## Extending it
 
