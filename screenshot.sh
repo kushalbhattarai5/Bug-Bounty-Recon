@@ -31,9 +31,8 @@ echo "Screenshotting $HOST_COUNT hosts..."
 
 "$GOWITNESS_BIN" scan file -f "$RECON_DIR/live_hosts_clean.txt" \
   --screenshot-path "$SHOTS_DIR" \
-  --write-db=false \
   --write-jsonl \
-  --jsonl-file "$SHOTS_DIR/gowitness_results.jsonl" \
+  --write-jsonl-file "$SHOTS_DIR/gowitness_results.jsonl" \
   --threads 4 || true
 
 SHOT_COUNT=$(find "$SHOTS_DIR" -name "*.png" 2>/dev/null | wc -l)
