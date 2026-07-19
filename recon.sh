@@ -65,8 +65,43 @@ done
 
 [[ -z "$TARGET" ]] && usage
 
+# early yes/no helper, needed here for resume detection before the main
+# ask_yes_no (used later for optional stages) is defined
+early_yes_no() {
+  local prompt="$1" answer
+  if [[ "$SKIP_CONFIRM" == true ]]; then
+    return 1
+  fi
+  while true; do
+    read -r -p "$prompt [y/n]: " answer
+    case "$answer" in
+      [Yy]|[Yy][Ee][Ss]) return 0 ;;
+      [Nn]|[Nn][Oo]) return 1 ;;
+      *) echo "Please type yes or no." ;;
+    esac
+  done
+}
+
 TS=$(date +%Y%m%d_%H%M%S)
-OUTDIR="${OUTDIR:-results/${TARGET}_${TS}}"
+if [[ -z "${OUTDIR:-}" ]]; then
+  # no -o given — check for an incomplete previous scan of this same
+  # target before starting a fresh one
+  LATEST_INCOMPLETE=$(ls -td "results/${TARGET}"_*/ 2>/dev/null | while read -r d; do
+    [[ -f "$d/.done_nuclei" ]] || echo "$d"
+  done | head -n1)
+  LATEST_INCOMPLETE="${LATEST_INCOMPLETE%/}"
+
+  if [[ -n "$LATEST_INCOMPLETE" ]]; then
+    echo "Found an incomplete previous scan: $LATEST_INCOMPLETE"
+    if early_yes_no "Resume it instead of starting a new scan?"; then
+      OUTDIR="$LATEST_INCOMPLETE"
+    else
+      OUTDIR="results/${TARGET}_${TS}"
+    fi
+  else
+    OUTDIR="results/${TARGET}_${TS}"
+  fi
+fi
 mkdir -p "$OUTDIR"
 
 echo "=============================================="
@@ -129,16 +164,26 @@ echo "  naabu:     $NAABU_BIN"
 echo "  nuclei:    $NUCLEI_BIN"
 
 # ---------- 1. Subdomain enumeration ----------
-echo "[1/4] Enumerating subdomains with subfinder..."
-"$SUBFINDER_BIN" -d "$TARGET" -silent -all -o "$OUTDIR/subdomains.txt"
+if [[ -f "$OUTDIR/.done_subfinder" ]]; then
+  echo "[1/4] Subfinder already completed for this output dir — skipping"
+else
+  echo "[1/4] Enumerating subdomains with subfinder..."
+  "$SUBFINDER_BIN" -d "$TARGET" -silent -all -o "$OUTDIR/subdomains.txt"
+  touch "$OUTDIR/.done_subfinder"
+fi
 SUB_COUNT=$(wc -l < "$OUTDIR/subdomains.txt" || echo 0)
 echo "      -> $SUB_COUNT subdomains found"
 
 # ---------- 2. Live host probing ----------
-echo "[2/4] Probing for live hosts with httpx..."
-"$HTTPX_BIN" -l "$OUTDIR/subdomains.txt" -silent -follow-redirects \
-  -status-code -title -tech-detect -threads "$THREADS" \
-  -o "$OUTDIR/live_hosts.txt"
+if [[ -f "$OUTDIR/.done_httpx" ]]; then
+  echo "[2/4] httpx already completed for this output dir — skipping"
+else
+  echo "[2/4] Probing for live hosts with httpx..."
+  "$HTTPX_BIN" -l "$OUTDIR/subdomains.txt" -silent -follow-redirects \
+    -status-code -title -tech-detect -threads "$THREADS" \
+    -o "$OUTDIR/live_hosts.txt"
+  touch "$OUTDIR/.done_httpx"
+fi
 LIVE_COUNT=$(wc -l < "$OUTDIR/live_hosts.txt" || echo 0)
 echo "      -> $LIVE_COUNT live hosts"
 
@@ -150,21 +195,31 @@ sed -E 's#^https?://##; s#/.*$##; s#:[0-9]+$##' "$OUTDIR/live_hosts_clean.txt" \
   | sort -u > "$OUTDIR/naabu_targets.txt"
 
 # ---------- 3. Port scanning ----------
-echo "[3/4] Scanning ports with naabu..."
-"$NAABU_BIN" -list "$OUTDIR/naabu_targets.txt" -silent \
-  -top-ports 1000 -o "$OUTDIR/ports.txt" || true
+if [[ -f "$OUTDIR/.done_naabu" ]]; then
+  echo "[3/4] naabu already completed for this output dir — skipping"
+else
+  echo "[3/4] Scanning ports with naabu..."
+  "$NAABU_BIN" -list "$OUTDIR/naabu_targets.txt" -silent \
+    -top-ports 1000 -o "$OUTDIR/ports.txt" || true
+  touch "$OUTDIR/.done_naabu"
+fi
 PORT_COUNT=0
 [[ -f "$OUTDIR/ports.txt" ]] && PORT_COUNT=$(wc -l < "$OUTDIR/ports.txt")
 echo "      -> $PORT_COUNT open host:port pairs"
 
 # ---------- 4. Vulnerability / misconfig scanning ----------
-echo "[4/4] Running nuclei templates (CVEs + misconfigs)..."
-"$NUCLEI_BIN" -l "$OUTDIR/live_hosts_clean.txt" \
-  -severity "$SEVERITY" \
-  -rate-limit "$NUCLEI_RATE" \
-  -silent \
-  -o "$OUTDIR/nuclei_results.txt" \
-  -je "$OUTDIR/nuclei_results.json" || true
+if [[ -f "$OUTDIR/.done_nuclei" ]]; then
+  echo "[4/4] nuclei already completed for this output dir — skipping"
+else
+  echo "[4/4] Running nuclei templates (CVEs + misconfigs)..."
+  "$NUCLEI_BIN" -l "$OUTDIR/live_hosts_clean.txt" \
+    -severity "$SEVERITY" \
+    -rate-limit "$NUCLEI_RATE" \
+    -silent \
+    -o "$OUTDIR/nuclei_results.txt" \
+    -je "$OUTDIR/nuclei_results.json" || true
+  touch "$OUTDIR/.done_nuclei"
+fi
 FINDINGS=0
 if [[ -f "$OUTDIR/nuclei_results.json" ]]; then
   FINDINGS=$(python3 -c "import json,sys
