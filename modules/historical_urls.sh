@@ -50,22 +50,35 @@ OUT_ADMIN="$HDIR/admin_panels.txt"
 OUT_API="$HDIR/api_docs.txt"
 OUT_PARAMS="$HDIR/urls_with_params.txt"
 OUT_REPORT="$HDIR/report.md"
+GAU_ERR_LOG="$HDIR/gau_errors.log"
+
+# guarantee the file exists no matter what happens below — every later
+# step (sort, wc, httpx -l) assumes it can read this file
+touch "$OUT_ALL"
 
 # ---------- 1. Pull historical URLs ----------
 echo "[1/4] Pulling historical URLs (can take a while for large targets)..."
-"$GAU_BIN" --subs --threads 5 < "$RECON_DIR/subdomains.txt" > "$OUT_ALL" 2>/dev/null || true
-sort -u -o "$OUT_ALL" "$OUT_ALL"
+if ! "$GAU_BIN" --subs --threads 5 < "$RECON_DIR/subdomains.txt" > "$OUT_ALL" 2>"$GAU_ERR_LOG"; then
+  echo "[!] gau exited with an error — see $GAU_ERR_LOG for details:"
+  tail -n 10 "$GAU_ERR_LOG" 2>/dev/null | sed 's/^/    /'
+  echo "    Continuing with whatever gau managed to output (may be empty)."
+fi
+[[ -s "$OUT_ALL" ]] && sort -u -o "$OUT_ALL" "$OUT_ALL"
 TOTAL=$(wc -l < "$OUT_ALL" 2>/dev/null || echo 0)
 echo "      -> $TOTAL historical URLs found"
 
 # ---------- 2. Filter out dead links ----------
+touch "$OUT_ALIVE"
 if [[ -z "$HTTPX_BIN" || "$TOTAL" -eq 0 ]]; then
   echo "[2/4] Skipping alive-check (httpx not found or no URLs to check)"
-  cp "$OUT_ALL" "$OUT_ALIVE" 2>/dev/null || touch "$OUT_ALIVE"
+  cp "$OUT_ALL" "$OUT_ALIVE" 2>/dev/null || true
 else
   echo "[2/4] Checking which URLs still respond (this is the slow part)..."
-  "$HTTPX_BIN" -l "$OUT_ALL" -silent -mc 200,201,301,302,401,403 \
-    -threads 50 -timeout 8 -o "$OUT_ALIVE" || true
+  if ! "$HTTPX_BIN" -l "$OUT_ALL" -silent -mc 200,201,301,302,401,403 \
+    -threads 50 -timeout 8 -o "$OUT_ALIVE" 2>"$HDIR/httpx_errors.log"; then
+    echo "[!] httpx exited with an error — see $HDIR/httpx_errors.log"
+    echo "    Continuing with whatever httpx managed to output (may be empty)."
+  fi
 fi
 ALIVE_COUNT=$(wc -l < "$OUT_ALIVE" 2>/dev/null || echo 0)
 echo "      -> $ALIVE_COUNT still respond ($((TOTAL - ALIVE_COUNT)) dead/filtered out)"
