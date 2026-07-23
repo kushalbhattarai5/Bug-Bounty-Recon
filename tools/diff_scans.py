@@ -11,6 +11,7 @@ Compares:
     nuclei_results.json     -> new findings (by template-id + host)
     takeover_results.json   -> new possible takeovers (if present)
 """
+import builtins
 import json
 import os
 import sys
